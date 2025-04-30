@@ -35,7 +35,7 @@ const router = createRouter({
 });
 
 // Update page title based on route
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   document.title = to.meta.title?.toString() || 'Expenzo';
   next();
 });

@@ -37,7 +37,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import { Transaction } from '../db';
 import { useTransactionStore } from '../stores/transactionStore';
 
@@ -46,7 +45,7 @@ interface Props {
   transaction: Transaction;
 }
 
-const props = defineProps<Props>();
+defineProps<Props>();
 
 // Store
 const transactionStore = useTransactionStore();

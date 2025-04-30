@@ -28,7 +28,7 @@
 import { defineProps, defineEmits } from 'vue';
 import ExpenseInput from './ExpenseInput.vue';
 
-const props = defineProps<{
+defineProps<{
   show: boolean;
   mode: 'text' | 'audio';
 }>();

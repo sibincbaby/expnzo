@@ -19,7 +19,7 @@ const error = ref<Error | null>(null);
 const errorMessage = ref('');
 
 // Capture errors from child components
-onErrorCaptured((err: unknown, instance, info) => {
+onErrorCaptured((err: unknown, _instance, info) => {
   error.value = err instanceof Error ? err : new Error(String(err));
   errorMessage.value = error.value.message || 'An unexpected error occurred';
   console.error('Error captured by boundary:', err, info);

@@ -162,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue';
+import { ref, onMounted, nextTick, watch, onUnmounted } from 'vue';
 import { useMediaRecorder } from '../composables/useMediaRecorder';
 import { useTransactionStore } from '../stores/transactionStore';
 
@@ -203,7 +203,7 @@ const {
 const audioUrl = ref('');
 
 // Watch for audioBlob changes to create and revoke object URLs
-watch(audioBlob, (newBlob, oldBlob) => {
+watch(audioBlob, (newBlob, _oldBlob) => {
   // Revoke old URL to prevent memory leaks
   if (audioUrl.value) {
     URL.revokeObjectURL(audioUrl.value);
