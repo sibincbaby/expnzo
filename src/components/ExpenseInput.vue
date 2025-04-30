@@ -162,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue';
 import { useMediaRecorder } from '../composables/useMediaRecorder';
 import { useTransactionStore } from '../stores/transactionStore';
 
@@ -200,8 +200,28 @@ const {
 } = useMediaRecorder();
 
 // Audio URL for playback
-const audioUrl = computed(() => {
-  return audioBlob.value ? URL.createObjectURL(audioBlob.value) : '';
+const audioUrl = ref('');
+
+// Watch for audioBlob changes to create and revoke object URLs
+watch(audioBlob, (newBlob, oldBlob) => {
+  // Revoke old URL to prevent memory leaks
+  if (audioUrl.value) {
+    URL.revokeObjectURL(audioUrl.value);
+  }
+  
+  // Create new URL if there's a blob
+  if (newBlob) {
+    audioUrl.value = URL.createObjectURL(newBlob);
+  } else {
+    audioUrl.value = '';
+  }
+}, { immediate: true });
+
+// Clean up URL when component unmounts
+onUnmounted(() => {
+  if (audioUrl.value) {
+    URL.revokeObjectURL(audioUrl.value);
+  }
 });
 
 // Submit text expense

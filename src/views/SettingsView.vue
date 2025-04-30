@@ -89,6 +89,37 @@
             </div>
           </div>
         </div>
+        
+        <!-- Model Name - NEW SECTION -->
+        <div class="mb-4 p-4 rounded-lg border border-gray-200">
+          <div class="flex items-start">
+            <div class="flex-shrink-0 mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+              </svg>
+            </div>
+            <div class="ml-3">
+              <h3 class="text-sm font-medium text-gray-900">Gemini Model Name</h3>
+              <p class="text-xs text-gray-500 mb-2">
+                Customize the Gemini model used for processing. Leave blank to use the default model.
+              </p>
+              <div class="flex gap-2">
+                <input 
+                  type="text" 
+                  v-model="modelName"
+                  placeholder="e.g., gemini-1.5-flash-latest" 
+                  class="text-xs p-1 border border-gray-300 rounded flex-grow"
+                />
+                <button 
+                  @click="saveModelName"
+                  class="text-xs py-1 px-3 bg-primary-500 text-white rounded-md hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       
       <!-- Debug information -->
@@ -135,6 +166,27 @@
           </button>
         </div>
       </div>
+
+      <!-- Export data section -->
+      <div class="mt-6 bg-white rounded-lg shadow-sm p-4">
+        <h2 class="text-lg font-medium text-gray-900 mb-4">Data Management</h2>
+        
+        <div class="space-y-3">
+          <button 
+            @click="exportTransactions('csv')"
+            class="w-full py-2 px-4 bg-secondary-500 text-white rounded-md hover:bg-secondary-600 focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2"
+          >
+            Export as CSV
+          </button>
+
+          <button 
+            @click="exportTransactions('json')"
+            class="w-full py-2 px-4 bg-secondary-500 text-white rounded-md hover:bg-secondary-600 focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2"
+          >
+            Export as JSON
+          </button>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -153,6 +205,7 @@ const transactionStore = useTransactionStore();
 
 // State
 const apiKey = ref('');
+const modelName = ref('');
 const installPromptEvent = ref<any>(null);
 
 // Computed
@@ -167,6 +220,17 @@ const saveApiKey = () => {
     localStorage.setItem('geminiApiKey', apiKey.value);
     alert('API key saved successfully');
   }
+};
+
+// New method to save model name
+const saveModelName = () => {
+  // Save to localStorage
+  localStorage.setItem('geminiModelName', modelName.value);
+  
+  // Update the store to use the new model name
+  transactionStore.$patch({ modelName: modelName.value || 'gemini-1.5-flash-latest' });
+  
+  alert('Model name saved successfully');
 };
 
 const promptInstall = () => {
@@ -219,12 +283,101 @@ const clearStorage = async () => {
   }
 };
 
+// Export transactions as CSV or JSON
+const exportTransactions = async (format: 'csv' | 'json') => {
+  try {
+    // Get all transactions
+    const transactions = transactionStore.transactions;
+    
+    if (transactions.length === 0) {
+      alert('No transactions to export');
+      return;
+    }
+    
+    // Get categories for reference
+    const categories = transactionStore.categories;
+    
+    // Format the data
+    let content = '';
+    let filename = '';
+    let dataType = '';
+    
+    if (format === 'csv') {
+      // Create CSV content
+      const headers = ['Date', 'Item', 'Amount', 'Category', 'Type'];
+      const csvRows = [headers.join(',')];
+      
+      transactions.forEach(transaction => {
+        const category = categories.find(c => c.id === transaction.categoryId);
+        const categoryName = category ? category.categoryName : 'Unknown';
+        const date = new Date(transaction.transactionDate).toLocaleDateString();
+        const type = transaction.type === 'debit' ? 'Expense' : 'Income';
+        
+        const row = [
+          `"${date}"`,
+          `"${transaction.item}"`,
+          transaction.amount,
+          `"${categoryName}"`,
+          `"${type}"`
+        ].join(',');
+        
+        csvRows.push(row);
+      });
+      
+      content = csvRows.join('\n');
+      filename = `expenzo_transactions_${new Date().toISOString().slice(0, 10)}.csv`;
+      dataType = 'text/csv';
+    } else {
+      // Create JSON content with additional category information
+      const exportData = transactions.map(transaction => {
+        const category = categories.find(c => c.id === transaction.categoryId);
+        
+        return {
+          ...transaction,
+          categoryName: category ? category.categoryName : 'Unknown',
+          formattedDate: new Date(transaction.transactionDate).toLocaleDateString(),
+        };
+      });
+      
+      content = JSON.stringify(exportData, null, 2);
+      filename = `expenzo_transactions_${new Date().toISOString().slice(0, 10)}.json`;
+      dataType = 'application/json';
+    }
+    
+    // Create a download link
+    const blob = new Blob([content], { type: dataType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // Set link attributes
+    link.href = url;
+    link.download = filename;
+    
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    
+    // Clean up
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Error exporting transactions:', error);
+    alert('Failed to export transactions');
+  }
+};
+
 // Lifecycle
 onMounted(() => {
   // Check for stored API key
   const storedApiKey = localStorage.getItem('geminiApiKey');
   if (storedApiKey) {
     apiKey.value = storedApiKey;
+  }
+  
+  // Check for stored model name
+  const storedModelName = localStorage.getItem('geminiModelName');
+  if (storedModelName) {
+    modelName.value = storedModelName;
   }
   
   // Listen for beforeinstallprompt event

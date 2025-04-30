@@ -8,11 +8,32 @@ interface TransactionState {
   categories: Category[];
   isProcessingQueue: boolean;
   isLoading: boolean;
+  modelName: string; // Centralized place to store the Gemini model name
 }
 
-// SECURITY WARNING: Client-side API key usage is INSECURE - only for development!
-// A backend proxy MUST be implemented before production to secure the API key
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+// SECURITY WARNING: Client-side API key usage is for development only
+// The recommended approach is to create a server-side proxy that securely handles the API key
+// For production, use a server-side proxy to handle API requests securely
+const getApiKey = (): string => {
+  // First try environment variable (for production builds)
+  const envApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (envApiKey) return envApiKey;
+  
+  // Fall back to localStorage for development (still not secure for production)
+  return localStorage.getItem('geminiApiKey') || '';
+};
+
+// Get model name from localStorage or use default
+const getModelName = (): string => {
+  const storedModelName = localStorage.getItem('geminiModelName');
+  return storedModelName || 'gemini-1.5-flash-latest';
+};
+
+const createGeminiApiUrl = (modelName: string): string => {
+  // This could be replaced with your own proxy endpoint in production
+  // Example: return 'https://your-backend.com/api/gemini-proxy';
+  return `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${getApiKey()}`;
+};
 
 // Convert blob to base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -26,16 +47,32 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 
 // Extract JSON from markdown-formatted response
 const extractJsonFromResponse = (text: string): any => {
-  // Find content between ```json and ``` markers
-  const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
-  if (jsonMatch && jsonMatch[1]) {
-    const jsonStr = jsonMatch[1].trim();
-    // Parse the JSON array and get the first item
-    const jsonArray = JSON.parse(jsonStr);
-    return Array.isArray(jsonArray) ? jsonArray[0] : jsonArray;
+  try {
+    // Find content between ```json and ``` markers
+    const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
+    if (jsonMatch && jsonMatch[1]) {
+      const jsonStr = jsonMatch[1].trim();
+      try {
+        // Parse the JSON array and get the first item
+        const jsonArray = JSON.parse(jsonStr);
+        return Array.isArray(jsonArray) ? jsonArray[0] : jsonArray;
+      } catch (error) {
+        console.error('Error parsing JSON from markdown format:', error);
+        throw new Error('Invalid JSON format in API response');
+      }
+    }
+    
+    // If no markdown formatting, try parsing directly
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      console.error('Error parsing direct JSON:', error);
+      throw new Error('Could not parse response as JSON');
+    }
+  } catch (error) {
+    console.error('Error extracting JSON from response:', error);
+    throw new Error('Failed to process API response');
   }
-  // If no markdown formatting, try parsing directly
-  return JSON.parse(text);
 };
 
 export const useTransactionStore = defineStore('transaction', {
@@ -45,6 +82,7 @@ export const useTransactionStore = defineStore('transaction', {
     categories: [],
     isProcessingQueue: false,
     isLoading: false,
+    modelName: getModelName() // Default model name
   }),
 
   getters: {
@@ -179,12 +217,6 @@ export const useTransactionStore = defineStore('transaction', {
         
         // Process each pending input
         for (const input of pendingInputs) {
-          // Skip if no API key (development safeguard)
-          if (!GEMINI_API_KEY) {
-            console.error('Gemini API Key not found in environment variables');
-            continue;
-          }
-          
           // Update status to processing
           await db.pendingInputs.update(input.id!, { status: 'processing' });
           this.updatePendingInputStatus(input.id!, 'processing');
@@ -286,7 +318,7 @@ export const useTransactionStore = defineStore('transaction', {
     async processTextWithGemini(text: string, categoryContext: string) {
       try {
         const response = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+          createGeminiApiUrl(this.modelName),
           {
             contents: [{
               parts: [{
@@ -322,7 +354,7 @@ export const useTransactionStore = defineStore('transaction', {
         const base64Audio = await blobToBase64(audioBlob);
         
         const response = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+          createGeminiApiUrl(this.modelName),
           {
             contents: [{
               parts: [
@@ -354,6 +386,32 @@ export const useTransactionStore = defineStore('transaction', {
         return extractJsonFromResponse(responseText);
       } catch (error) {
         console.error('Error processing audio with Gemini:', error);
+        throw error;
+      }
+    },
+    
+    // Add a transaction immediately for optimistic UI
+    async addTransactionOptimistically(transactionData: Partial<Transaction>) {
+      try {
+        // Create a complete transaction object with default values
+        const transaction: Transaction = {
+          item: transactionData.item || 'Untitled',
+          amount: transactionData.amount || 0,
+          categoryId: transactionData.categoryId || 1, // Default to first category
+          type: transactionData.type || 'debit',
+          transactionDate: transactionData.transactionDate || new Date(),
+          createdAt: new Date()
+        };
+        
+        // Save to database
+        const id = await db.transactions.add(transaction);
+        
+        // Add to local state
+        this.transactions.push({...transaction, id});
+        
+        return id;
+      } catch (error) {
+        console.error('Error adding transaction:', error);
         throw error;
       }
     },

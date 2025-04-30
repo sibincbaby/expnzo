@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 
 export function useMediaRecorder() {
   const isRecording = ref(false);
@@ -9,6 +9,7 @@ export function useMediaRecorder() {
   const recordingTimer = ref<number | null>(null);
   const isSupported = ref(true);
   const errorMessage = ref('');
+  let stream: MediaStream | null = null;
 
   // Check if MediaRecorder is supported
   if (typeof navigator === 'undefined' || 
@@ -33,7 +34,7 @@ export function useMediaRecorder() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       audioChunks.value = [];
       mediaRecorder.value = new MediaRecorder(stream);
@@ -52,7 +53,9 @@ export function useMediaRecorder() {
         audioBlob.value = blob;
         
         // Stop all tracks from the stream
-        stream.getTracks().forEach(track => track.stop());
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
         
         // Clear timer
         if (recordingTimer.value) {
@@ -96,6 +99,28 @@ export function useMediaRecorder() {
     }
   };
 
+  // Clean up resources when component is unmounted
+  const cleanup = () => {
+    if (isRecording.value) {
+      stopRecording();
+    }
+    
+    if (recordingTimer.value) {
+      clearInterval(recordingTimer.value);
+      recordingTimer.value = null;
+    }
+    
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+  };
+
+  // Set up automatic cleanup
+  if (typeof onUnmounted === 'function') {
+    onUnmounted(cleanup);
+  }
+
   return {
     isRecording,
     audioBlob,
@@ -104,6 +129,7 @@ export function useMediaRecorder() {
     errorMessage,
     startRecording,
     stopRecording,
-    resetRecording
+    resetRecording,
+    cleanup
   };
 }
