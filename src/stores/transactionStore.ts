@@ -24,6 +24,20 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
   });
 };
 
+// Extract JSON from markdown-formatted response
+const extractJsonFromResponse = (text: string): any => {
+  // Find content between ```json and ``` markers
+  const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
+  if (jsonMatch && jsonMatch[1]) {
+    const jsonStr = jsonMatch[1].trim();
+    // Parse the JSON array and get the first item
+    const jsonArray = JSON.parse(jsonStr);
+    return Array.isArray(jsonArray) ? jsonArray[0] : jsonArray;
+  }
+  // If no markdown formatting, try parsing directly
+  return JSON.parse(text);
+};
+
 export const useTransactionStore = defineStore('transaction', {
   state: (): TransactionState => ({
     transactions: [],
@@ -195,11 +209,23 @@ export const useTransactionStore = defineStore('transaction', {
             
             // Parse response and save transaction
             if (response) {
+              // Validate response data
+              if (!response.item || typeof response.amount !== 'number' || 
+                  !response.categoryId || !['debit', 'credit'].includes(response.type)) {
+                throw new Error('Invalid response format from Gemini API');
+              }
+
+              // Validate category exists
+              const categoryExists = categories.some(c => c.id === response.categoryId);
+              if (!categoryExists) {
+                throw new Error(`Invalid category ID: ${response.categoryId}`);
+              }
+
               const transaction: Transaction = {
                 item: response.item,
-                amount: Number(response.amount),
-                categoryId: Number(response.categoryId),
-                type: response.type,
+                amount: response.amount,
+                categoryId: response.categoryId,
+                type: response.type as 'debit' | 'credit',
                 transactionDate: new Date(),
                 createdAt: new Date()
               };
@@ -258,41 +284,32 @@ export const useTransactionStore = defineStore('transaction', {
     },
     
     async processTextWithGemini(text: string, categoryContext: string) {
-      console.log(categoryContext);
       try {
         const response = await axios.post(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
           {
             contents: [{
               parts: [{
-                text: `Extract expense information from this text: "${text}". 
-                Available categories: ${categoryContext}.
-                Return ONLY a valid JSON with these exact fields:
-                {
-                  "item": "item_name",
-                  "amount": "amount_in_numbers",
-                  "categoryId": "category_id",
-                  "type": "debit_or_credit"
-                }`
+                text: `Extract expense information from this text and return a JSON object with these fields:
+                - item (string): The name of the item
+                - amount (number): The amount in numbers
+                - categoryId (number): The category ID from these options: ${categoryContext}
+                - type (string): Either "debit" or "credit"
+
+                Text to process: "${text}"`
               }]
             }],
             generationConfig: {
               temperature: 0.1,
-              maxOutputTokens: 50,
+              topP: 0.1,
+              maxOutputTokens: 200
             }
           }
         );
         
-        // Parse the response to get the JSON string
-        const jsonString = response.data.candidates[0].content.parts[0].text;
-        // Extract JSON object from the response text
-        const jsonMatch = jsonString.match(/({.*})/s);
-        if (jsonMatch) {
-          const parsedData = JSON.parse(jsonMatch[0]);
-          return parsedData;
-        }
-        
-        throw new Error('Failed to parse Gemini response');
+        // Extract and parse the JSON from the response
+        const responseText = response.data.candidates[0].content.parts[0].text;
+        return extractJsonFromResponse(responseText);
       } catch (error) {
         console.error('Error processing text with Gemini:', error);
         throw error;
@@ -304,56 +321,37 @@ export const useTransactionStore = defineStore('transaction', {
         // Convert audio to base64
         const base64Audio = await blobToBase64(audioBlob);
         
-        // Define system instruction
-        const systemInstruction = `Listen to this audio and extract the following information.
-        Available categories: ${categoryContext}.
-        Return ONLY a valid JSON with these exact fields:
-        {
-          "item": "what was mentioned",
-          "amount": "any mentioned amount",
-          "categoryId": "category_id",
-          "type": "debit"
-        }`;
-        
-        // Prepare request body
-        const requestBody = {
-          contents: [{
-            parts: [
-              { text: systemInstruction },
-              {
-                inline_data: {
-                  mime_type: audioBlob.type,
-                  data: base64Audio.split(',')[1]
-                }
-              }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 50,
-          }
-        };
-        
-        // Send request to Gemini
         const response = await axios.post(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
-          requestBody,
           {
-            headers: {
-              'Content-Type': 'application/json'
+            contents: [{
+              parts: [
+                {
+                  text: `Extract expense information from this audio and return a JSON object with these fields:
+                  - item (string): The name of the item
+                  - amount (number): The amount in numbers
+                  - categoryId (number): The category ID from these options: ${categoryContext}
+                  - type (string): Either "debit" or "credit"`
+                },
+                {
+                  inline_data: {
+                    mime_type: audioBlob.type,
+                    data: base64Audio.split(',')[1]
+                  }
+                }
+              ]
+            }],
+            generationConfig: {
+              temperature: 0.1,
+              topP: 0.1,
+              maxOutputTokens: 200
             }
           }
         );
         
-        // Parse the response
-        const jsonString = response.data.candidates[0].content.parts[0].text;
-        const jsonMatch = jsonString.match(/({.*})/s);
-        if (jsonMatch) {
-          const parsedData = JSON.parse(jsonMatch[0]);
-          return parsedData;
-        }
-        
-        throw new Error('Failed to parse Gemini response');
+        // Extract and parse the JSON from the response
+        const responseText = response.data.candidates[0].content.parts[0].text;
+        return extractJsonFromResponse(responseText);
       } catch (error) {
         console.error('Error processing audio with Gemini:', error);
         throw error;

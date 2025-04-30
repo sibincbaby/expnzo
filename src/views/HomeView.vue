@@ -32,21 +32,21 @@
       <!-- Balance card -->
       <div class="balance-card bg-gradient-to-r from-primary-600 to-primary-500 rounded-lg shadow-lg p-6 mb-6 text-white">
         <p class="text-sm opacity-80">Total Balance</p>
-        <h2 class="text-3xl font-bold">₹{{ formatAmount(totalAmount) }}</h2>
+        <h2 class="text-3xl font-bold">₹{{ totalAmount.toFixed(2) }}</h2>
         
         <!-- Quick stats -->
         <div class="flex justify-between mt-4 text-sm">
           <div>
             <p class="opacity-80">Income</p>
-            <p class="font-semibold">₹{{ formatAmount(totalIncome) }}</p>
+            <p class="font-semibold">₹{{ totalIncome.toFixed(2) }}</p>
           </div>
           <div>
             <p class="opacity-80">Expenses</p>
-            <p class="font-semibold">₹{{ formatAmount(totalExpense) }}</p>
+            <p class="font-semibold">₹{{ totalExpense.toFixed(2) }}</p>
           </div>
           <div>
             <p class="opacity-80">This Month</p>
-            <p class="font-semibold">₹{{ formatAmount(currentMonthTotal) }}</p>
+            <p class="font-semibold">₹{{ currentMonthTotal.toFixed(2) }}</p>
           </div>
         </div>
       </div>
@@ -94,22 +94,43 @@
         </div>
         <h3 class="text-xl font-medium text-gray-700 mb-2">No transactions yet</h3>
         <p class="text-gray-500 text-center mb-4">
-          Get started by adding your first expense using the button below
+          Get started by adding your first expense using the buttons below
         </p>
       </section>
     </main>
     
-    <!-- Add expense button -->
-    <div class="fixed bottom-6 right-6">
-      <RouterLink 
-        to="/add" 
-        class="add-button bg-primary-500 text-white rounded-full h-14 w-14 shadow-lg flex items-center justify-center hover:bg-primary-600 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
-      </RouterLink>
+    <!-- Add expense buttons -->
+    <div class="fixed bottom-6 left-0 right-0 px-6">
+      <div class="flex gap-4 justify-center">
+        <button 
+          @click="openModal('text')"
+          class="flex items-center gap-2 py-3 px-6 bg-primary-500 text-white rounded-full shadow-lg hover:bg-primary-600 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+          Text Input
+        </button>
+        
+        <button 
+          @click="openModal('audio')"
+          class="flex items-center gap-2 py-3 px-6 bg-accent-500 text-white rounded-full shadow-lg hover:bg-accent-600 transition-colors focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+          Voice Input
+        </button>
+      </div>
     </div>
+    
+    <!-- Modal -->
+    <ExpenseModal 
+      :show="showModal"
+      :mode="modalMode"
+      @close="closeModal"
+      @expense-added="handleExpenseAdded"
+    />
     
     <!-- Install prompt -->
     <InstallPrompt />
@@ -117,15 +138,34 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useTransactionStore } from '../stores/transactionStore';
 import TransactionItem from '../components/TransactionItem.vue';
 import PendingItem from '../components/PendingItem.vue';
 import InstallPrompt from '../components/InstallPrompt.vue';
+import ExpenseModal from '../components/ExpenseModal.vue';
 
 // Store
 const transactionStore = useTransactionStore();
+
+// Modal state
+const showModal = ref(false);
+const modalMode = ref<'text' | 'audio'>('text');
+
+// Modal methods
+const openModal = (mode: 'text' | 'audio') => {
+  modalMode.value = mode;
+  showModal.value = true;
+};
+
+const closeModal = () => {
+  showModal.value = false;
+};
+
+const handleExpenseAdded = () => {
+  closeModal();
+};
 
 // Computed properties
 const hasTransactions = computed(() => transactionStore.transactions.length > 0);
@@ -141,46 +181,30 @@ const recentTransactions = computed(() => {
     .slice(0, 5);
 });
 
-// Format amount helper to prevent NaN display
-const formatAmount = (value: number) => {
-  if (value === undefined || value === null || isNaN(value)) {
-    return '0.00';
-  }
-  return value.toFixed(2);
-};
-
 // Calculate financials
-const totalAmount = computed(() => {
-  const amount = transactionStore.getTotalAmount;
-  return isNaN(amount) ? 0 : amount;
-});
+const totalAmount = computed(() => transactionStore.getTotalAmount);
 
 const totalIncome = computed(() => {
-  const income = transactionStore.transactions
+  return transactionStore.transactions
     .filter(t => t.type === 'credit')
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-  return isNaN(income) ? 0 : income;
+    .reduce((sum, t) => sum + t.amount, 0);
 });
 
 const totalExpense = computed(() => {
-  const expense = transactionStore.transactions
+  return transactionStore.transactions
     .filter(t => t.type === 'debit')
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-  return isNaN(expense) ? 0 : expense;
+    .reduce((sum, t) => sum + t.amount, 0);
 });
 
 const currentMonthTotal = computed(() => {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   
-  const total = transactionStore.transactions
+  return transactionStore.transactions
     .filter(t => new Date(t.transactionDate) >= startOfMonth)
     .reduce((sum, t) => {
-      const amount = Number(t.amount) || 0;
-      return t.type === 'credit' ? sum + amount : sum - amount;
+      return t.type === 'credit' ? sum + t.amount : sum - t.amount;
     }, 0);
-  
-  return isNaN(total) ? 0 : total;
 });
 
 // Lifecycle hooks
